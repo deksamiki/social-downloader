@@ -8,8 +8,27 @@ from typing import Optional
 
 import yt_dlp
 
-DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "downloads"))
-DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+def _resolve_download_dir() -> Path:
+    """First writable candidate wins — hosts like blitz.cloud may mount /app read-only."""
+    candidates = [
+        Path(os.getenv("DOWNLOAD_DIR", "downloads")),
+        Path(tempfile.gettempdir()) / "social-dl",
+    ]
+    last_err: Optional[Exception] = None
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            probe = c / ".writetest"
+            probe.touch()
+            probe.unlink(missing_ok=True)
+            return c
+        except OSError as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"No writable download dir ({last_err})")
+
+
+DOWNLOAD_DIR = _resolve_download_dir()
 MAX_TELEGRAM_MB = int(os.getenv("MAX_TELEGRAM_MB", "48"))
 COOKIES_FILE = os.getenv("COOKIES_FILE", "")  # e.g. cookies.txt for Instagram
 
