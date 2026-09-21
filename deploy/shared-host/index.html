@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>دانلودر سوشال 📥</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="./config.js"></script>
+<style>
+  body { font-family: Vazirmatn, Tahoma, sans-serif; }
+  @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
+  .glass { backdrop-filter: blur(14px); background: rgba(255,255,255,.08); }
+  .loader { border: 3px solid #333; border-top-color: #a78bfa; border-radius: 50%; width: 22px; height: 22px; animation: spin 0.8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body class="min-h-screen bg-gradient-to-b from-slate-950 via-violet-950 to-slate-950 text-white">
+<div class="max-w-2xl mx-auto px-4 py-10">
+  <div class="text-center mb-8">
+    <div class="text-5xl mb-3">📥</div>
+    <h1 class="text-3xl font-black">دانلودر سوشال</h1>
+    <p class="text-white/60 mt-2">اینستاگرام • یوتیوب • تیک‌تاک • ایکس • پینترست</p>
+  </div>
+
+  <div class="glass rounded-2xl p-5 border border-white/10 shadow-2xl">
+    <label class="text-sm text-white/70">🔗 لینک رو اینجا بچسبون:</label>
+    <div class="flex gap-2 mt-2">
+      <input id="url" dir="ltr" placeholder="https://..."
+        class="flex-1 rounded-xl bg-black/40 border border-white/10 px-4 py-3 text-left outline-none focus:border-violet-400" />
+      <button onclick="fetchInfo()" class="bg-violet-600 hover:bg-violet-500 rounded-xl px-5 font-bold">بررسی</button>
+    </div>
+
+    <div id="status" class="mt-4 text-sm text-white/70"></div>
+
+    <div id="result" class="hidden mt-4 bg-black/30 rounded-xl p-4 border border-white/10">
+      <div class="flex gap-3">
+        <img id="thumb" class="w-28 h-20 object-cover rounded-lg hidden" />
+        <div class="flex-1">
+          <div id="title" class="font-bold"></div>
+          <div id="meta" class="text-xs text-white/50 mt-1"></div>
+        </div>
+      </div>
+      <label class="text-sm text-white/70 mt-4 block">کیفیت:</label>
+      <select id="quality" class="mt-1 w-full rounded-xl bg-black/40 border border-white/10 px-3 py-2">
+        <option value="best">🎬 بهترین کیفیت</option>
+        <option value="720">📺 720p</option>
+        <option value="480">📱 480p</option>
+        <option value="360">📲 360p (کم‌حجم)</option>
+        <option value="audio">🎵 فقط صدا MP3</option>
+      </select>
+      <button onclick="doDownload()" id="dlBtn" class="mt-3 w-full bg-emerald-600 hover:bg-emerald-500 rounded-xl py-3 font-black">⬇️ دانلود</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-5 gap-2 mt-6 text-center text-2xl">
+    <div class="glass rounded-xl p-3 border border-white/10" title="Instagram">📸<div class="text-[10px]">اینستا</div></div>
+    <div class="glass rounded-xl p-3 border border-white/10" title="YouTube">▶️<div class="text-[10px]">یوتیوب</div></div>
+    <div class="glass rounded-xl p-3 border border-white/10" title="TikTok">🎵<div class="text-[10px]">تیک‌تاک</div></div>
+    <div class="glass rounded-xl p-3 border border-white/10" title="X">✖️<div class="text-[10px]">ایکس</div></div>
+    <div class="glass rounded-xl p-3 border border-white/10" title="Pinterest">📌<div class="text-[10px]">پینترست</div></div>
+  </div>
+</div>
+
+<script>
+// روی هاست اشتراکی: API_BASE از config.js میاد (آدرس بک‌اند)
+// لوکال: خالی باشه یعنی همون هاست فعلی (relative)
+function api(path) {
+  const base = (window.API_BASE || "").replace(/\/$/, "");
+  // ?api=... هم پشتیبانی میشه برای تست سریع
+  const q = new URLSearchParams(location.search).get("api");
+  const b = (q || base).replace(/\/$/, "");
+  return b ? b + "/" + path : path;
+}
+let lastUrl = "";
+async function fetchInfo() {
+  const url = document.getElementById("url").value.trim();
+  const st = document.getElementById("status");
+  const res = document.getElementById("result");
+  if (!url.startsWith("http")) { st.textContent = "❌ اول یه لینک معتبر وارد کن."; return; }
+  if (!window.API_BASE && !new URLSearchParams(location.search).get("api") && location.protocol.startsWith("http") && !location.href.includes("127.0.0.1") && !location.href.includes("localhost")) {
+    // روی هاست اشتراکی بدون تنظیم config.js
+  }
+  st.innerHTML = '<span class="loader"></span> در حال بررسی لینک...';
+  res.classList.add("hidden");
+  try {
+    const r = await fetch(api("api/info"), { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({url}) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "خطا");
+    lastUrl = url;
+    document.getElementById("title").textContent = j.title || "بدون عنوان";
+    document.getElementById("meta").textContent = `${j.platform} • ${j.uploader||""} • ${j.duration ? Math.floor(j.duration/60)+":"+String(j.duration%60).padStart(2,"0") : ""}`;
+    const th = document.getElementById("thumb");
+    if (j.thumbnail) { th.src = j.thumbnail; th.classList.remove("hidden"); } else th.classList.add("hidden");
+    res.classList.remove("hidden");
+    st.textContent = "✅ لینک معتبره، کیفیت رو انتخاب و دانلود رو بزن.";
+  } catch(e) { st.textContent = "❌ " + e.message + " (اگه روی هاست اشتراکی هستی، config.js رو چک کن)"; }
+}
+async function doDownload() {
+  const q = document.getElementById("quality").value;
+  const st = document.getElementById("status");
+  const btn = document.getElementById("dlBtn");
+  btn.disabled = true; btn.textContent = "⏳ در حال دانلود...";
+  st.innerHTML = '<span class="loader"></span> در حال دانلود از سرور... (ممکنه تا ۱ دقیقه طول بکشه)';
+  try {
+    const r = await fetch(api("api/download"), { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({url: lastUrl, quality: q}) });
+    if (!r.ok) { const j = await r.json(); throw new Error(j.detail || "دانلود ناموفق"); }
+    const blob = await r.blob();
+    const cd = r.headers.get("Content-Disposition") || "";
+    let name = "download.mp4";
+    const m = cd.match(/filename\*\=UTF-8''(.+)/);
+    if (m) name = decodeURIComponent(m[1]);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    st.textContent = "✅ دانلود شروع شد!";
+  } catch(e) { st.textContent = "❌ " + e.message; }
+  btn.disabled = false; btn.textContent = "⬇️ دانلود";
+}
+document.getElementById("url").addEventListener("keydown", e => { if (e.key === "Enter") fetchInfo(); });
+</script>
+</body>
+</html>

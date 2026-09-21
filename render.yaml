@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: social-downloader
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: ROOT_PATH
+        value:
+      - key: DOWNLOAD_DIR
+        value: downloads

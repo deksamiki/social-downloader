@@ -1,0 +1,9 @@
+# Shared hosting (Apache/cPanel) — static files only
+RewriteEngine On
+# force HTTPS (optional, recommended)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
