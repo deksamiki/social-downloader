@@ -1,7 +1,6 @@
-.env
-downloads/
-__pycache__/
+# keep sensitive keys out of git
+cookies.txt
 *.pyc
-*.pyo
+__pycache__/
 .venv/
 venv/
