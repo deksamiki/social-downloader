@@ -5,14 +5,17 @@ Run: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 import os
 import shutil
 import urllib.parse
+import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+from aiogram.types import Update
 
 BASE_DIR = Path(__file__).parent
 load_dotenv(BASE_DIR / ".env")
@@ -24,6 +27,23 @@ if ROOT_PATH and not ROOT_PATH.startswith("/"):
     ROOT_PATH = "/" + ROOT_PATH
 if ROOT_PATH == "/":
     ROOT_PATH = ""
+
+WEBHOOK_PATH = "/bot/webhook"
+WEBHOOK_TOKEN_SECRET = os.getenv("WEBHOOK_TOKEN_SECRET", "").strip()
+
+# ── Telegram bot (webhook), optional ─────────────────────────────────────
+# Runs inside the same process as the web app on cloud deploys.
+bot = None
+dp = None
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip().strip("\"'")
+USE_WEBHOOK = bool(BOT_TOKEN and "PUT-YOUR" not in BOT_TOKEN and os.getenv("WEBHOOK_URL", "").strip())
+if USE_WEBHOOK:
+    from aiogram import Bot, Dispatcher
+    import bot as botmodule  # noqa: E402  (registers handlers via its router)
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip().rstrip("/")
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher(storage=botmodule.MemoryStorage())
+    dp.include_router(botmodule.router)
 
 app = FastAPI(title="Social Downloader", version="1.0.0", root_path=ROOT_PATH)
 app.add_middleware(
@@ -59,7 +79,39 @@ def index():
 
 @app.get("/api/health")
 def health():
+    return {"ok": True, "bot": USE_WEBHOOK}
+
+
+@app.post(WEBHOOK_PATH)
+async def telegram_webhook(request: Request):
+    """Telegram posts bot updates here. Secret path keeps it private."""
+    if WEBHOOK_TOKEN_SECRET:
+        provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if provided != WEBHOOK_TOKEN_SECRET:
+            raise HTTPException(403, "Forbidden")
+    payload = await request.json()
+    update = Update(**payload)
+    await dp.feed_webhook_update(bot, update)
     return {"ok": True}
+
+
+@app.on_event("startup")
+async def setup_webhook():
+    if USE_WEBHOOK:
+        await bot.set_webhook(
+            f"{WEBHOOK_URL}{WEBHOOK_PATH}",
+            allowed_updates=dp.resolve_used_update_types(),
+            secret_token=WEBHOOK_TOKEN_SECRET or None,
+        )
+        await bot.set_my_commands(botmodule.COMMANDS)
+        logging.info(f"Telegram webhook set: {WEBHOOK_URL}{WEBHOOK_PATH}")
+
+
+@app.on_event("shutdown")
+async def delete_webhook():
+    if USE_WEBHOOK:
+        await bot.delete_webhook()
+        await bot.session.close()
 
 
 @app.post("/api/info")

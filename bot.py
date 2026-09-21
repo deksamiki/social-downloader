@@ -36,6 +36,11 @@ if not BOT_TOKEN or "PUT-YOUR" in BOT_TOKEN:
 logging.basicConfig(level=logging.INFO)
 router = Router()
 
+# ── Webhook support (for cloud deploys alongside the web app) ──────────
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip().rstrip("/")  # e.g. https://dl.example.com
+WEBHOOK_PATH = "/bot/webhook"  # Telegram posts updates here (secret in BOT_TOKEN path below)
+USE_WEBHOOK = bool(WEBHOOK_URL)
+
 PLATFORM_FA = {
     "instagram": "📸 اینستاگرام",
     "youtube": "▶️ یوتیوب",
@@ -357,7 +362,7 @@ async def main():
     await bot.set_my_commands(COMMANDS)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    print(f"Bot is running... @{BOT_USERNAME}")
+    print(f"Bot is running (polling)... @{BOT_USERNAME}")
     await dp.start_polling(bot)
 
 
