@@ -1,6 +1,6 @@
-# keep sensitive keys out of git
 cookies.txt
 *.pyc
 __pycache__/
 .venv/
 venv/
+downloads/
