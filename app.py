@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.background import BackgroundTask
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -35,15 +36,24 @@ WEBHOOK_TOKEN_SECRET = os.getenv("WEBHOOK_TOKEN_SECRET", "").strip()
 # Runs inside the same process as the web app on cloud deploys.
 bot = None
 dp = None
+botmodule = None
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip().strip("\"'")
 USE_WEBHOOK = bool(BOT_TOKEN and "PUT-YOUR" not in BOT_TOKEN and os.getenv("WEBHOOK_URL", "").strip())
 if USE_WEBHOOK:
-    from aiogram import Bot, Dispatcher
-    import bot as botmodule  # noqa: E402  (registers handlers via its router)
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip().rstrip("/")
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher(storage=botmodule.MemoryStorage())
-    dp.include_router(botmodule.router)
+    try:
+        from aiogram import Bot, Dispatcher
+        import bot as botmodule  # noqa: E402  (registers handlers via its router)
+        WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip().rstrip("/")
+        bot = Bot(token=BOT_TOKEN)
+        dp = Dispatcher(storage=botmodule.MemoryStorage())
+        dp.include_router(botmodule.router)
+    except Exception as e:
+        # Never take the web app down because of a bot misconfiguration.
+        logging.error(f"Telegram bot disabled: {e}")
+        bot = None
+        dp = None
+        botmodule = None
+        USE_WEBHOOK = False
 
 app = FastAPI(title="Social Downloader", version="1.0.0", root_path=ROOT_PATH)
 app.add_middleware(
@@ -62,6 +72,11 @@ class InfoReq(BaseModel):
 class DlReq(BaseModel):
     url: str
     quality: str = "best"  # best | 720 | 480 | 360 | audio
+
+
+def _cleanup_dir(path: Path) -> None:
+    """Delete the temp download dir after the file has been streamed out."""
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -85,6 +100,10 @@ def health():
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook(request: Request):
     """Telegram posts bot updates here. Secret path keeps it private."""
+    if not USE_WEBHOOK or bot is None or dp is None:
+        # Webhook route exists but bot is not configured — always answer 200
+        # so Telegram doesn't retry forever and fill the update queue.
+        return {"ok": True, "bot": False}
     if WEBHOOK_TOKEN_SECRET:
         provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if provided != WEBHOOK_TOKEN_SECRET:
@@ -97,21 +116,25 @@ async def telegram_webhook(request: Request):
 
 @app.on_event("startup")
 async def setup_webhook():
-    if USE_WEBHOOK:
+    if USE_WEBHOOK and bot is not None and dp is not None:
         await bot.set_webhook(
             f"{WEBHOOK_URL}{WEBHOOK_PATH}",
             allowed_updates=dp.resolve_used_update_types(),
             secret_token=WEBHOOK_TOKEN_SECRET or None,
         )
-        await bot.set_my_commands(botmodule.COMMANDS)
+        if botmodule is not None:
+            await bot.set_my_commands(botmodule.COMMANDS)
         logging.info(f"Telegram webhook set: {WEBHOOK_URL}{WEBHOOK_PATH}")
 
 
 @app.on_event("shutdown")
 async def delete_webhook():
-    if USE_WEBHOOK:
-        await bot.delete_webhook()
-        await bot.session.close()
+    if bot is not None:
+        try:
+            await bot.delete_webhook()
+            await bot.session.close()
+        except Exception:
+            pass
 
 
 @app.post("/api/info")
@@ -152,11 +175,15 @@ async def api_download(req: DlReq):
         raise HTTPException(422, f"دانلود ناموفق: {e}")
     # biggest file = main (or first)
     main = max(files, key=lambda p: p.stat().st_size)
-    # cleanup siblings later — schedule simple: leave tmpdir, OS cleans? Better: keep file, delete rest now
+    # delete sibling leftovers now, and the temp dir after the response is sent
     for f in files:
         if f != main:
             try: f.unlink()
             except Exception: pass
     filename = urllib.parse.quote(main.name)
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
-    return FileResponse(str(main), headers=headers, background=None)
+    return FileResponse(
+        str(main),
+        headers=headers,
+        background=BackgroundTask(_cleanup_dir, main.parent),
+    )

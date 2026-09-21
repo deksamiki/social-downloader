@@ -31,7 +31,9 @@ from downloader import (
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip().strip("\"'")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "branddownloader_bot").strip().lstrip("@")
 if not BOT_TOKEN or "PUT-YOUR" in BOT_TOKEN:
-    raise SystemExit("BOT_TOKEN در .env تنظیم نشده. از BotFather بگیر و بذار.")
+    # Webhook mode imports this module even when the token isn't set yet;
+    # the app.py webhook guard keeps things safe, so don't hard-exit on import.
+    BOT_TOKEN = ""
 
 logging.basicConfig(level=logging.INFO)
 router = Router()
@@ -358,6 +360,8 @@ COMMANDS = [
 
 
 async def main():
+    if not BOT_TOKEN:
+        raise SystemExit("BOT_TOKEN تنظیم نشده. از BotFather بگیر و بذار توی .env")
     bot = Bot(token=BOT_TOKEN)
     await bot.set_my_commands(COMMANDS)
     dp = Dispatcher(storage=MemoryStorage())
